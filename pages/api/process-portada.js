@@ -29,6 +29,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Falta portada_base64" });
     }
 
+    // Defensivo: si el frontend mandó el prefijo "data:image/...;base64,"
+    // completo (en vez de solo el base64 puro), lo quitamos aquí para no
+    // depender de que el frontend siempre lo haga bien.
+    const prefixMatch = portada_base64.match(/^data:image\/\w+;base64,(.+)$/s);
+    if (prefixMatch) {
+      portada_base64 = prefixMatch[1];
+    }
+
     if (!portada_base64.match(/^[A-Za-z0-9+/=]+$/)) {
       return res.status(400).json({
         error: "base64 inválido - contiene caracteres no permitidos",
