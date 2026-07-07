@@ -11,16 +11,35 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { portada_base64, remitente, asunto } = req.body;
+    let { portada_base64, remitente, asunto } = req.body;
 
     if (!portada_base64) {
       return res.status(400).json({ error: "Falta portada_base64" });
     }
 
+    // Validar que sea base64 válido (solo caracteres base64)
+    if (!portada_base64.match(/^[A-Za-z0-9+/=]+$/)) {
+      return res.status(400).json({ 
+        error: "base64 inválido - contiene caracteres no permitidos",
+        recibido: portada_base64.substring(0, 50) + "..."
+      });
+    }
+
+    // Asegurar que sea múltiplo de 4 (requerimiento de base64)
+    portada_base64 = portada_base64.replace(/\s/g, '');
+    const padding = portada_base64.length % 4;
+    if (padding) {
+      portada_base64 += '='.repeat(4 - padding);
+    }
+
     // ============================================
     // PASO 1: Ejecutar 4 agentes en paralelo
     // ============================================
-    const validaciones = await runAllAgents(portada_base64, [], []);
+    const validaciones = await runAllAgents(
+      `data:image/jpeg;base64,${portada_base64}`,
+      [],
+      []
+    );
 
     // Si hay errores críticos en OCR, abortar
     if (validaciones.agente1_ocr.error) {
@@ -59,7 +78,7 @@ export default async function handler(req, res) {
     // PASO 3: Re-validar con los agentes 2, 3, 4
     // ============================================
     const validacionesFinales = await runAllAgents(
-      portada_base64,
+      `data:image/jpeg;base64,${portada_base64}`,
       fulltracks,
       fulltracks.map((f) => f.reportero)
     );
