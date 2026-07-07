@@ -3,86 +3,21 @@ import { useState } from "react";
 export default function Dashboard() {
   const [portadaBase64, setPortadaBase64] = useState(null);
   const [portadaPreview, setPortadaPreview] = useState(null);
-  const [pesoKB, setPesoKB] = useState(null);
   const [cargando, setCargando] = useState(false);
-  const [comprimiendo, setComprimiendo] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null);
 
-  // Comprime la imagen de forma agresiva hasta que quepa bajo el límite
-  const compressImage = async (base64String) => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        let maxDim = 1200; // lado más largo
-        let quality = 0.6;
-
-        const render = (dim, q) => {
-          const canvas = document.createElement("canvas");
-          let width = img.width;
-          let height = img.height;
-          if (width > dim || height > dim) {
-            const ratio = Math.min(dim / width, dim / height);
-            width = Math.round(width * ratio);
-            height = Math.round(height * ratio);
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, width, height);
-          ctx.drawImage(img, 0, 0, width, height);
-          return canvas.toDataURL("image/jpeg", q);
-        };
-
-        // Objetivo: base64 bajo ~2.8MB (deja margen para el resto del JSON)
-        const LIMITE_BYTES = 2.8 * 1024 * 1024;
-        let out = render(maxDim, quality);
-
-        // Si sigue grande, reduce dimensiones y calidad iterativamente
-        let intentos = 0;
-        while (out.length > LIMITE_BYTES && intentos < 8) {
-          if (quality > 0.35) {
-            quality -= 0.1;
-          } else {
-            maxDim = Math.round(maxDim * 0.85);
-          }
-          out = render(maxDim, quality);
-          intentos++;
-        }
-
-        resolve(out);
-      };
-      img.src = base64String;
-    });
-  };
-
-  const handleImageUpload = async (e) => {
+  const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    setComprimiendo(true);
-    setError(null);
-    setResultado(null);
-
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const base64 = event.target.result;
-        const compressed = await compressImage(base64);
-
-        // Calcula peso aproximado del base64 puro
-        const base64Only = compressed.split(",")[1] || compressed;
-        const kb = Math.round((base64Only.length * 0.75) / 1024);
-
-        setPortadaBase64(compressed);
-        setPortadaPreview(compressed);
-        setPesoKB(kb);
-        setComprimiendo(false);
-      } catch (err) {
-        setError(`Error comprimiendo imagen: ${err.message}`);
-        setComprimiendo(false);
-      }
+    reader.onload = (event) => {
+      const base64 = event.target.result;
+      setPortadaBase64(base64);
+      setPortadaPreview(base64);
+      setResultado(null);
+      setError(null);
     };
     reader.readAsDataURL(file);
   };
@@ -97,31 +32,15 @@ export default function Dashboard() {
     setError(null);
 
     try {
-      const base64Only = portadaBase64.includes(",")
-        ? portadaBase64.split(",")[1]
-        : portadaBase64;
-
       const res = await fetch("/api/process-portada", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          portada_base64: base64Only,
+          portada_base64: portadaBase64,
           remitente: "test@example.com",
           asunto: "Portada de prueba",
         }),
       });
-
-      // Si Vercel corta por tamaño, la respuesta no es JSON
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        const texto = await res.text();
-        setError(
-          `El servidor rechazó la petición (${res.status}). ` +
-            `Probablemente la imagen sigue siendo muy grande. Detalle: ${texto.slice(0, 120)}`
-        );
-        setCargando(false);
-        return;
-      }
 
       const data = await res.json();
 
@@ -138,9 +57,6 @@ export default function Dashboard() {
     }
   };
 
-  const pesoColor =
-    pesoKB == null ? "#94a3b8" : pesoKB < 2800 ? "#10b981" : "#f59e0b";
-
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -149,6 +65,7 @@ export default function Dashboard() {
       </header>
 
       <div style={styles.content}>
+        {/* SECCIÓN 1: Upload */}
         <section style={styles.section}>
           <h2>1. Cargar Portada</h2>
           <div style={styles.uploadArea}>
@@ -158,43 +75,30 @@ export default function Dashboard() {
               onChange={handleImageUpload}
               style={styles.fileInput}
             />
-            <p style={styles.uploadText}>
-              PNG, JPG o JPEG (se comprime automáticamente)
-            </p>
+            <p style={styles.uploadText}>PNG, JPG o JPEG</p>
           </div>
 
-          {comprimiendo && (
-            <p style={styles.uploadText}>⏳ Comprimiendo imagen...</p>
-          )}
-
-          {portadaPreview && !comprimiendo && (
+          {portadaPreview && (
             <div style={styles.preview}>
               <img
                 src={portadaPreview}
                 alt="Preview"
                 style={styles.previewImage}
               />
-              <p style={styles.uploadedText}>✓ Portada cargada y comprimida</p>
-              {pesoKB != null && (
-                <p style={{ ...styles.uploadText, color: pesoColor }}>
-                  Peso final: ~{pesoKB} KB{" "}
-                  {pesoKB < 2800 ? "(dentro del límite ✓)" : "(aún pesada ⚠)"}
-                </p>
-              )}
+              <p style={styles.uploadedText}>✓ Portada cargada</p>
             </div>
           )}
         </section>
 
+        {/* SECCIÓN 2: Procesar */}
         <section style={styles.section}>
           <h2>2. Procesar con Agentes</h2>
           <button
             onClick={procesarPortada}
-            disabled={!portadaBase64 || cargando || comprimiendo}
+            disabled={!portadaBase64 || cargando}
             style={{
               ...styles.button,
-              ...(cargando || !portadaBase64 || comprimiendo
-                ? styles.buttonDisabled
-                : {}),
+              ...(cargando || !portadaBase64 ? styles.buttonDisabled : {}),
             }}
           >
             {cargando ? "⏳ Procesando (30-45s)..." : "▶ Procesar Portada"}
@@ -216,10 +120,12 @@ export default function Dashboard() {
           {error && <div style={styles.errorBox}>{error}</div>}
         </section>
 
+        {/* SECCIÓN 3: Resultados */}
         {resultado && (
           <section style={styles.section}>
             <h2>3. Resultados</h2>
 
+            {/* Estado General */}
             <div
               style={{
                 ...styles.statusCard,
@@ -229,7 +135,9 @@ export default function Dashboard() {
                     : "#f59e0b",
               }}
             >
-              <h3>{resultado.exito ? "✓ Procesado" : "⚠ Con Errores"}</h3>
+              <h3>
+                {resultado.exito ? "✓ Procesado" : "⚠ Con Errores"}
+              </h3>
               <p>
                 Estado:{" "}
                 <strong>
@@ -239,11 +147,10 @@ export default function Dashboard() {
                 </strong>
               </p>
               <p>Fulltracks: {resultado.fulltracks_generados}</p>
-              <p>
-                Listo para audio: {resultado.listo_para_audio ? "Sí" : "No"}
-              </p>
+              <p>Listo para audio: {resultado.listo_para_audio ? "Sí" : "No"}</p>
             </div>
 
+            {/* Validaciones de Agentes */}
             {resultado.validaciones_agentes && (
               <div style={styles.agentsResults}>
                 <h3>Validaciones de Agentes</h3>
@@ -274,9 +181,15 @@ export default function Dashboard() {
                 <div style={styles.agentCard}>
                   <h4>✓ Agente 2: Estructura</h4>
                   {resultado.validaciones_agentes.agente2_estructura.error ? (
-                    <p style={styles.errorText}>⚠ Error en validación</p>
+                    <>
+                      <p style={styles.errorText}>⚠ Error en validación</p>
+                      <p style={{...styles.errorText, fontSize: "0.8rem"}}>
+                        {resultado.validaciones_agentes.agente2_estructura.detalles}
+                      </p>
+                    </>
                   ) : (
                     <p>
+                      Validaciones:{" "}
                       {resultado.validaciones_agentes.agente2_estructura.resumen}
                     </p>
                   )}
@@ -285,28 +198,41 @@ export default function Dashboard() {
                 <div style={styles.agentCard}>
                   <h4>⏱ Agente 3: Timings</h4>
                   {resultado.validaciones_agentes.agente3_timings.error ? (
-                    <p style={styles.errorText}>⚠ Error en timings</p>
+                    <>
+                      <p style={styles.errorText}>⚠ Error en timings</p>
+                      <p style={{...styles.errorText, fontSize: "0.8rem"}}>
+                        {resultado.validaciones_agentes.agente3_timings.detalles}
+                      </p>
+                    </>
                   ) : (
-                    <p>{resultado.validaciones_agentes.agente3_timings.resumen}</p>
+                    <p>
+                      {
+                        resultado.validaciones_agentes.agente3_timings
+                          .resumen
+                      }
+                    </p>
                   )}
                 </div>
 
                 <div style={styles.agentCard}>
                   <h4>🎙 Agente 4: Audio</h4>
                   {resultado.validaciones_agentes.agente4_audio.error ? (
-                    <p style={styles.errorText}>⚠ Error en validación</p>
+                    <>
+                      <p style={styles.errorText}>⚠ Error en validación</p>
+                      <p style={{...styles.errorText, fontSize: "0.8rem"}}>
+                        {resultado.validaciones_agentes.agente4_audio.detalles}
+                      </p>
+                    </>
                   ) : (
                     <p>
-                      {
-                        resultado.validaciones_agentes.agente4_audio
-                          .resumen_general
-                      }
+                      {resultado.validaciones_agentes.agente4_audio.resumen_general}
                     </p>
                   )}
                 </div>
               </div>
             )}
 
+            {/* Fulltracks */}
             {resultado.fulltracks && resultado.fulltracks.length > 0 && (
               <div style={styles.fulltracksSection}>
                 <h3>📋 Fulltracks Generados</h3>
@@ -331,9 +257,12 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* Botón Enviar a n8n */}
             {resultado.listo_para_audio && (
               <button
-                onClick={() => console.log("Enviar a n8n:", resultado)}
+                onClick={() =>
+                  console.log("Enviar a n8n:", resultado)
+                }
                 style={styles.buttonSuccess}
               >
                 ✓ Listo para Enviar a n8n + Fish Audio
@@ -344,7 +273,9 @@ export default function Dashboard() {
       </div>
 
       <footer style={styles.footer}>
-        <p>RC Portada Processor • Vercel + Claude API + OpenAI GPT + Fish Audio</p>
+        <p>
+          RC Portada Processor • Vercel + Claude API + OpenAI GPT + Fish Audio
+        </p>
       </footer>
     </div>
   );
@@ -363,7 +294,11 @@ const styles = {
     textAlign: "center",
     borderBottom: "2px solid #3b82f6",
   },
-  content: { maxWidth: "1200px", margin: "0 auto", padding: "2rem 1rem" },
+  content: {
+    maxWidth: "1200px",
+    margin: "0 auto",
+    padding: "2rem 1rem",
+  },
   section: {
     backgroundColor: "#1e293b",
     padding: "2rem",
@@ -377,17 +312,33 @@ const styles = {
     padding: "2rem",
     textAlign: "center",
     cursor: "pointer",
+    transition: "all 0.3s",
   },
-  fileInput: { display: "block", margin: "0 auto", cursor: "pointer" },
-  uploadText: { marginTop: "0.5rem", fontSize: "0.9rem", color: "#94a3b8" },
-  preview: { marginTop: "1.5rem", textAlign: "center" },
+  fileInput: {
+    display: "block",
+    margin: "0 auto",
+    cursor: "pointer",
+  },
+  uploadText: {
+    marginTop: "0.5rem",
+    fontSize: "0.9rem",
+    color: "#94a3b8",
+  },
+  preview: {
+    marginTop: "1.5rem",
+    textAlign: "center",
+  },
   previewImage: {
     maxWidth: "100%",
     maxHeight: "300px",
     borderRadius: "8px",
     border: "1px solid #334155",
   },
-  uploadedText: { marginTop: "0.5rem", color: "#10b981", fontWeight: "bold" },
+  uploadedText: {
+    marginTop: "0.5rem",
+    color: "#10b981",
+    fontWeight: "bold",
+  },
   button: {
     padding: "0.75rem 1.5rem",
     fontSize: "1rem",
@@ -397,6 +348,7 @@ const styles = {
     borderRadius: "6px",
     cursor: "pointer",
     fontWeight: "bold",
+    transition: "background 0.3s",
   },
   buttonDisabled: {
     backgroundColor: "#64748b",
@@ -444,7 +396,9 @@ const styles = {
     borderRadius: "6px",
     color: "#fca5a5",
   },
-  errorText: { color: "#f87171" },
+  errorText: {
+    color: "#f87171",
+  },
   statusCard: {
     padding: "1.5rem",
     backgroundColor: "#0f172a",
@@ -452,7 +406,9 @@ const styles = {
     borderRadius: "8px",
     marginBottom: "1.5rem",
   },
-  agentsResults: { marginTop: "2rem" },
+  agentsResults: {
+    marginTop: "2rem",
+  },
   agentCard: {
     padding: "1rem",
     backgroundColor: "#0f172a",
@@ -460,7 +416,9 @@ const styles = {
     borderRadius: "6px",
     marginBottom: "1rem",
   },
-  fulltracksSection: { marginTop: "2rem" },
+  fulltracksSection: {
+    marginTop: "2rem",
+  },
   fulltrackCard: {
     padding: "1.5rem",
     backgroundColor: "#0f172a",
@@ -502,8 +460,13 @@ const styles = {
   },
 };
 
+// Agrega animación CSS
 if (typeof document !== "undefined") {
   const style = document.createElement("style");
-  style.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
+  style.textContent = `
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  `;
   document.head.appendChild(style);
 }
