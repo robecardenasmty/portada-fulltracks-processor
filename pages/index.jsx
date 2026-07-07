@@ -7,17 +7,57 @@ export default function Dashboard() {
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState(null);
 
-  const handleImageUpload = (e) => {
+  // Comprime imagen a ~500KB máximo
+  const compressImage = async (base64String) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        // Reduce tamaño si es muy grande
+        if (width > 1920 || height > 1440) {
+          const ratio = Math.min(1920 / width, 1440 / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Comprime a JPEG con calidad 0.8
+        const compressed = canvas.toDataURL("image/jpeg", 0.8);
+        resolve(compressed);
+      };
+      img.src = base64String;
+    });
+  };
+
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Muestra que está comprimiendo
+    setCargando(true);
+    setError(null);
+
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target.result;
-      setPortadaBase64(base64);
-      setPortadaPreview(base64);
-      setResultado(null);
-      setError(null);
+    reader.onload = async (event) => {
+      try {
+        const base64 = event.target.result;
+        const compressed = await compressImage(base64);
+        
+        setPortadaBase64(compressed);
+        setPortadaPreview(compressed);
+        setResultado(null);
+        setCargando(false);
+      } catch (err) {
+        setError(`Error comprimiendo imagen: ${err.message}`);
+        setCargando(false);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -36,6 +76,8 @@ export default function Dashboard() {
       const base64Only = portadaBase64.includes(',') 
         ? portadaBase64.split(',')[1] 
         : portadaBase64;
+
+      console.log("Enviando base64 de", base64Only.length, "caracteres");
 
       const res = await fetch("/api/process-portada", {
         method: "POST",
@@ -80,7 +122,7 @@ export default function Dashboard() {
               onChange={handleImageUpload}
               style={styles.fileInput}
             />
-            <p style={styles.uploadText}>PNG, JPG o JPEG</p>
+            <p style={styles.uploadText}>PNG, JPG o JPEG (se comprime automáticamente)</p>
           </div>
 
           {portadaPreview && (
@@ -90,7 +132,7 @@ export default function Dashboard() {
                 alt="Preview"
                 style={styles.previewImage}
               />
-              <p style={styles.uploadedText}>✓ Portada cargada</p>
+              <p style={styles.uploadedText}>✓ Portada cargada y comprimida</p>
             </div>
           )}
         </section>
