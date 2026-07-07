@@ -4,6 +4,19 @@ import {
   validateFulltrackRequirements,
 } from "../../lib/openai-client";
 
+// IMPORTANTE: en Next.js (Pages Router) el límite del body se define
+// AQUÍ, dentro del archivo de la API, no en next.config.js.
+// Vercel además tiene un límite duro de ~4.5MB en funciones serverless,
+// así que "10mb" es seguro como techo, pero el body real nunca debe
+// pasar de ~4mb o Vercel lo cortará antes de llegar aquí.
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "10mb",
+    },
+  },
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Método no permitido" });
@@ -71,8 +84,7 @@ export default async function handler(req, res) {
 
     // ============================================
     // PASO 3: Re-correr Agentes 2, 3 y 4 YA CON los
-    // fulltracks generados (esta es la que se usa
-    // en la respuesta final)
+    // fulltracks generados
     // ============================================
     const validacionesFinales = await runAllAgents(
       portadaDataUrl,
@@ -95,9 +107,6 @@ export default async function handler(req, res) {
 
     // ============================================
     // RESPUESTA FINAL
-    // Usamos validacionesFinales (agente1 se repite
-    // pero ya sirvió, y agentes 2/3/4 ahora sí tienen
-    // los fulltracks para validar)
     // ============================================
     return res.status(200).json({
       exito: true,
