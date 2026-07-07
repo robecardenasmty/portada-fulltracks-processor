@@ -32,11 +32,16 @@ export default function Dashboard() {
     setError(null);
 
     try {
+      // Extrae solo la parte base64, sin el prefijo "data:image/..."
+      const base64Only = portadaBase64.includes(',') 
+        ? portadaBase64.split(',')[1] 
+        : portadaBase64;
+
       const res = await fetch("/api/process-portada", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          portada_base64: portadaBase64,
+          portada_base64: base64Only,
           remitente: "test@example.com",
           asunto: "Portada de prueba",
         }),
