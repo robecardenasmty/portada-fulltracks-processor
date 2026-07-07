@@ -23,18 +23,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    let { portada_base64, remitente, asunto } = req.body;
+    let { portada_base64, remitente, asunto, mime_type } = req.body;
 
     if (!portada_base64) {
       return res.status(400).json({ error: "Falta portada_base64" });
     }
 
-    // Defensivo: si el frontend mandó el prefijo "data:image/...;base64,"
-    // completo (en vez de solo el base64 puro), lo quitamos aquí para no
-    // depender de que el frontend siempre lo haga bien.
-    const prefixMatch = portada_base64.match(/^data:image\/\w+;base64,(.+)$/s);
+    // Prioridad para determinar el media_type real:
+    // 1. Campo explícito "mime_type" mandado por el frontend (más confiable)
+    // 2. Prefijo "data:image/...;base64," si el base64 todavía lo trae
+    // 3. Default a image/jpeg como último recurso
+    let mediaType = mime_type || "image/jpeg";
+
+    const prefixMatch = portada_base64.match(/^data:(image\/\w+);base64,(.+)$/s);
     if (prefixMatch) {
-      portada_base64 = prefixMatch[1];
+      if (!mime_type) mediaType = prefixMatch[1];
+      portada_base64 = prefixMatch[2];
     }
 
     if (!portada_base64.match(/^[A-Za-z0-9+/=]+$/)) {
@@ -50,7 +54,7 @@ export default async function handler(req, res) {
       portada_base64 += "=".repeat(4 - padding);
     }
 
-    const portadaDataUrl = `data:image/jpeg;base64,${portada_base64}`;
+    const portadaDataUrl = `data:${mediaType};base64,${portada_base64}`;
 
     // ============================================
     // PASO 1: Agente 1 (OCR) - solo este puede correr
